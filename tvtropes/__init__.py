@@ -1,7 +1,12 @@
 from grab import Grab
+import csv
+
+csvfile = open('data.csv', 'w', newline='')
+writer = csv.writer(csvfile, delimiter=',')
+
 
 def register_trope(name, trope):
-    print("{} has {} ({})".format(name, trope['name'], trope['href']))
+    writer.writerow([name, trope['name'], trope['href']])
 
 g = Grab()
 ns = "Film"
@@ -12,3 +17,5 @@ for trope in tropes:
     trope_d = {"name": trope.text(),
                "href": trope.attr('href')}
     register_trope(name, trope_d)
+
+csvfile.close()
