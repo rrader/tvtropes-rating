@@ -1,5 +1,6 @@
 import csv
 from grab.spider import Spider, Task
+import redis
 import logging
 
 
@@ -13,6 +14,7 @@ class TVTropesSpider(Spider):
         self.result_file = csv.writer(self.full_file)
         self.short_file = open('s_data.csv', 'w', newline='')
         self.s_result_file = csv.writer(self.short_file)
+        self.redis = redis.Redis(db=1)
 
     def shutdown(self):
         super().shutdown()
@@ -22,15 +24,25 @@ class TVTropesSpider(Spider):
     def task_initial(self, grab, task):
         sections = grab.doc.select('//div[@id="wikitext"]/ul[1]/li/a[1]')
         for section in sections:
-            yield Task("section", s_name=section.text(), url=section.attr('href'))
+            yield Task("section", s_name=section.text(), url=section.attr('href'), level=1)
 
     def task_section(self, grab, task):
+        if self.redis.getset(task.url, "1") is not None:
+            return
+        print("Section " + task.url)
         films = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for film in films:
-            if film.attr('href').split('/')[-2] == self.ns:
+            if film.attr('href').split('/')[-2] == self.ns:  # Film
                 yield Task("film", f_name=film.text(), url=film.attr('href'))
+            elif film.attr('href').split('/')[-2] == "Main":  # subsection
+                if task.level < 2:
+                    print("subsection " + film.attr('href') + ' ' + task.url)
+                    yield Task("section", s_name=film.text(), url=film.attr('href'), level=task.level+1)
 
     def task_film(self, grab, task):
+        if self.redis.getset(task.url, "1") is not None:
+            return
+        print("Film " + task.url)
         tropes = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for trope in tropes:
             if trope.attr('href').split('/')[-2] == "Main":
@@ -48,5 +60,6 @@ class TVTropesSpider(Spider):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    bot = TVTropesSpider(thread_number=10)
+    bot = TVTropesSpider(thread_number=15)
+    bot.setup_queue(backend="mongo", database="tvtropes-grab")
     bot.run()
