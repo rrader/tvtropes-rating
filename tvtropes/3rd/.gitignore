@@ -1,2 +1,3 @@
-sqlitedb
+sqlitedb/*.sqlite*
+sqlitedb/*.txt
 dumps
