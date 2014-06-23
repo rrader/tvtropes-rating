@@ -43,6 +43,9 @@ class TVTropesSpider(Spider):
         if self.redis.getset(task.url, "1") is not None:
             return
         print("Film " + task.url)
+        years_sel = grab.doc.select('//div[@id="wikitext"]').rex('(\d\d\d\d)')
+        years = set(y.group() for y in years_sel.items)
+
         tropes = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for trope in tropes:
             if trope.attr('href').split('/')[-2] == "Main":
@@ -50,11 +53,13 @@ class TVTropesSpider(Spider):
                     task.url,
                     task.f_name,
                     trope.text(),
-                    trope.attr('href')
+                    trope.attr('href'),
+                    ','.join(years)
                 ])
                 self.s_result_file.writerow([
                     task.f_name,
-                    trope.text()
+                    trope.text(),
+                    ','.join(years)
                 ])
 
 

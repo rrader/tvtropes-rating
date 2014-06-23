@@ -1,6 +1,12 @@
+import concurrent.futures
 import csv
 import html
+import logging
+from threading import Thread
+import threading
 from urllib.parse import urlencode
+import time
+import sqlite3
 import re
 from imdbpie import Imdb
 
@@ -42,32 +48,109 @@ class MyImdb(Imdb):
         return title_results
 
 
+sqlite3_connections = {}
+
+
+def get_connection():
+    ident = threading.get_ident()
+    if ident not in sqlite3_connections:
+        sqlite3_connections[ident] = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
+    return sqlite3_connections[ident]
+
+
+def get_offline_rating(name, years):
+    c = get_connection().cursor()
+    rating = []
+    sql_no_year = "SELECT * FROM productions WHERE title LIKE ? AND rating IS NOT NULL"
+    sql_with_year = sql_no_year + " AND (year IN (%s) OR year IS NULL)" % (','.join(years))
+    records = []
+    if years:
+        c.execute(sql_with_year, [name])
+        records = c.fetchall()
+    if not records:
+        c.execute(sql_no_year, [name])
+        records = c.fetchall()
+
+    for record in records:
+        if record is not None and record[13] is not None:
+            rating.append(record[13])
+    if not rating:
+        return
+    return sum(rating) / len(rating)
+
+
+class IMDBSpider(object):
+    def prepare(self):
+        self.csvfile_dst = open("gen/films_imdb.csv", "w", newline='')
+        self.csvfile_dst_notfound = open("gen/films_no_imdb.csv", "w", newline='')
+
+        self.writer = csv.writer(self.csvfile_dst)
+        self.writer_no_imdb = csv.writer(self.csvfile_dst_notfound)
+        self.imdb = None
+
+    def shutdown(self):
+        self.csvfile_dst.close()
+        self.csvfile_dst_notfound.close()
+
+    def task_generator(self):
+        csvfile_src = open("gen/films.csv", newline='')
+        reader = csv.reader(csvfile_src)
+        for row in reader:
+            yield {'name': 'film', 'title': row[0], 'years': row[1].split(',')}
+
+    def task_film(self, task, tries=1):
+        logging.debug("Processing {}...".format(task['title']))
+        if self.imdb == None:
+            self.imdb = MyImdb()
+
+        try:
+            film = self.imdb.find_by_title(task['title'])[0]
+            # i_id = film["imdb_id"]
+            real_title = film["title"]
+            # movie = self.imdb.find_movie_by_id(i_id)
+            movie_rating = get_offline_rating(real_title, task['years'])
+            self.writer.writerow([
+                task['title'],
+                real_title,
+                movie_rating
+            ])
+            logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
+        except IndexError:
+            self.writer_no_imdb.writerow([
+                task['title']
+            ])
+            logging.debug("No {} in IMDB".format(task['title']))
+        except Exception as ex:
+            logging.error("Some error: {}".format(ex))
+        #     # restart task
+        #     logging.debug("Too many connections maybe? Waiting...")
+        #     time.sleep(10)
+        #     if tries > 3:
+        #         self.writer_no_imdb.writerow([
+        #             task['title']
+        #         ])
+        #         logging.debug("Error getting {} from IMDB".format(task['title']))
+        #     else:
+        #         self.task_film(task, tries=tries+1)
+        #     return
+        self.csvfile_dst.flush()
+        self.csvfile_dst_notfound.flush()
+
+    def run(self):
+        self.prepare()
+
+        gen = self.task_generator()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            for row in gen:
+                method = getattr(self, 'task_{}'.format(row['name']))
+                executor.submit(method, row)
+            executor.shutdown(wait=True)
+
+        self.shutdown()
+
+
 if __name__ == "__main__":
-    imdb = MyImdb()
-    with open("gen/films.csv", newline='') as csvfile_src:
-        with open("gen/films_imdb.csv", "w", newline='') as csvfile_dst:
-            with open("gen/films_no_imdb.csv", "w", newline='') as csvfile_dst2:
-                reader = csv.reader(csvfile_src)
-                writer = csv.writer(csvfile_dst)
-                writer_no_imdb = csv.writer(csvfile_dst2)
-                for row in reader:
-                    print(row)
-                    try:
-                        film = imdb.find_by_title(row[0])[0]
-                        i_id = film["imdb_id"]
-                        movie = imdb.find_movie_by_id(i_id)
-                        writer.writerow([
-                            row[0],
-                            movie.imdb_id,
-                            movie.title,
-                            movie.rating,
-                            movie.year,
-                            movie.tagline,
-                            ','.join(movie.genres)
-                        ])
-                    except IndexError:
-                        writer_no_imdb.writerow([
-                            row[0]
-                        ])
-                    csvfile_dst.flush()
-                    csvfile_dst2.flush()
+    logging.basicConfig(level=logging.DEBUG, )
+    bot = IMDBSpider()
+    bot.run()
