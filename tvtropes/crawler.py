@@ -10,9 +10,9 @@ class TVTropesSpider(Spider):
 
     def prepare(self):
         super().prepare()
-        self.full_file = open('data.csv', 'w', newline='')
+        self.full_file = open('gen/data.csv', 'w', newline='')
         self.result_file = csv.writer(self.full_file)
-        self.short_file = open('s_data.csv', 'w', newline='')
+        self.short_file = open('gen/s_data.csv', 'w', newline='')
         self.s_result_file = csv.writer(self.short_file)
         self.redis = redis.Redis(db=1)
 
