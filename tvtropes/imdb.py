@@ -104,14 +104,12 @@ class IMDBSpider(object):
             self.imdb = MyImdb()
 
         try:
-            film = self.imdb.find_by_title(task['title'])[0]
-            # i_id = film["imdb_id"]
-            real_title = film["title"]
-            # movie = self.imdb.find_movie_by_id(i_id)
+            # film = self.imdb.find_by_title(task['title'])[0]
+            # real_title = film["title"]
+            real_title = task['title']
             movie_rating = get_offline_rating(real_title, task['years'])
             self.writer.writerow([
                 task['title'],
-                real_title,
                 movie_rating
             ])
             logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
@@ -122,17 +120,6 @@ class IMDBSpider(object):
             logging.debug("No {} in IMDB".format(task['title']))
         except Exception as ex:
             logging.error("Some error: {}".format(ex))
-        #     # restart task
-        #     logging.debug("Too many connections maybe? Waiting...")
-        #     time.sleep(10)
-        #     if tries > 3:
-        #         self.writer_no_imdb.writerow([
-        #             task['title']
-        #         ])
-        #         logging.debug("Error getting {} from IMDB".format(task['title']))
-        #     else:
-        #         self.task_film(task, tries=tries+1)
-        #     return
         self.csvfile_dst.flush()
         self.csvfile_dst_notfound.flush()
 
@@ -141,7 +128,7 @@ class IMDBSpider(object):
 
         gen = self.task_generator()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             for row in gen:
                 method = getattr(self, 'task_{}'.format(row['name']))
                 executor.submit(method, row)
@@ -151,6 +138,6 @@ class IMDBSpider(object):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, )
+    logging.basicConfig(level=logging.DEBUG)
     bot = IMDBSpider()
     bot.run()
