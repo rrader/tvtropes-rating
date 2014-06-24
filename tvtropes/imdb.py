@@ -72,6 +72,8 @@ def get_offline_rating(name, years, aka=False):
         sql_aka_year = sql_aka + " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
     else:
         sql_aka_year = sql_aka
+
+    logging.debug("{}, [{}]".format(sql_aka_year, [name]))
     c.execute(sql_aka_year, [name])
     try:
         name = c.fetchone()[2]  # get original title
