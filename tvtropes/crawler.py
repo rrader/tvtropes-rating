@@ -1,7 +1,10 @@
 import csv
+import re
 from grab.spider import Spider, Task
 import redis
 import logging
+
+year_regex   = re.compile(".*\((\d\d\d\d)\).*", re.VERBOSE)
 
 
 class TVTropesSpider(Spider):
@@ -44,20 +47,22 @@ class TVTropesSpider(Spider):
             return
         print("Film " + task.url)
         years_sel = grab.doc.select('//div[@id="wikitext"]').rex('(\d\d\d\d)')
-        years = set(y.group() for y in years_sel.items)
+        years = set(y.group() for y in years_sel.items).union(set(year_regex.search(task.f_name).groups()))
+
+        title = year_regex.sub('', task.f_name).strip()
 
         tropes = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for trope in tropes:
             if trope.attr('href').split('/')[-2] == "Main":
                 self.result_file.writerow([
                     task.url,
-                    task.f_name,
+                    title,
                     trope.text(),
                     trope.attr('href'),
                     ','.join(years)
                 ])
                 self.s_result_file.writerow([
-                    task.f_name,
+                    title,
                     trope.text(),
                     ','.join(years)
                 ])

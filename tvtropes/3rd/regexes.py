@@ -135,10 +135,10 @@ aka_titles_regex_string = """
         \)
     )
 """
-aka_titles_regex   = re.compile(aka_titles_regex_string,   re.VERBOSE)
 
 unique_title_regex = re.compile(unique_title_regex_string, re.VERBOSE)
 productions_regex  = re.compile(productions_regex_string,  re.VERBOSE)
 rating_regex       = re.compile(rating_regex_string,       re.VERBOSE)
 director_regex     = re.compile(director_regex_string,     re.VERBOSE)
 genre_regex        = re.compile(genre_regex_string,        re.VERBOSE)
+aka_titles_regex   = re.compile(aka_titles_regex_string,   re.VERBOSE)
