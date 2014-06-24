@@ -2,10 +2,9 @@ import concurrent.futures
 import csv
 import html
 import logging
-from threading import Thread
 import threading
 from urllib.parse import urlencode
-import time
+import re
 import sqlite3
 import re
 from imdbpie import Imdb
@@ -58,18 +57,94 @@ def get_connection():
     return sqlite3_connections[ident]
 
 
-def get_offline_rating(name, years):
+def get_offline_rating(name, years, aka=False):
     c = get_connection().cursor()
     rating = []
-    sql_no_year = "SELECT * FROM productions WHERE title LIKE ? AND rating IS NOT NULL"
-    sql_with_year = sql_no_year + " AND (year IN (%s) OR year IS NULL)" % (','.join(years))
-    records = []
+    sql_s = "SELECT * FROM productions WHERE %s AND rating IS NOT NULL"
+    like_clause = "title LIKE ?"
+    sql_no_year = sql_s % like_clause
+    year_clause_generic = "(%%s IN (%s) OR %%s IS NULL)" % (','.join(years))
+    year_clause = " AND " + year_clause_generic % ("year", "year")
+    sql_with_year = sql_no_year + year_clause
+
+    sql_aka = "SELECT * FROM aka_titles WHERE aka_title LIKE ?"
     if years:
-        c.execute(sql_with_year, [name])
+        sql_aka_year = sql_aka + " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
+    else:
+        sql_aka_year = sql_aka
+    c.execute(sql_aka_year, [name])
+    try:
+        name = c.fetchone()[2]  # get original title
+    except TypeError:
+        pass
+
+    records = []
+    sql = None
+    if years:
+        sql = sql_with_year
+        parts = [name]
+        c.execute(sql, parts)
         records = c.fetchall()
     if not records:
-        c.execute(sql_no_year, [name])
+        sql = sql_no_year
+        parts = [name]
+        c.execute(sql, parts)
         records = c.fetchall()
+    if not records:
+        sql = sql_with_year
+        parts = ['%' + name + '%']
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records:
+        sql = sql_no_year
+        parts = ['%' + name + '%']
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records:
+        parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records:
+        parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 0]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) #  + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records:
+        parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 3]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records:
+        parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 3]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) #  + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+#
+    if not records and len(name.split(':')) > 1:
+        parts = [('%%%s%%' % part) for part in name.split(':')[1].split(' ') if len(part) > 3]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records and len(name.split("'s")) > 1:
+        parts = [('%%%s%%' % part) for part in name.split("'s")[1].strip().split(' ') if len(part) > 3]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where) + year_clause
+        c.execute(sql, parts)
+        records = c.fetchall()
+    if not records and len(name.split("'s")) > 1:
+        parts = [('%%%s%%' % part) for part in name.split("'s")[1].strip().split(' ') if len(part) > 3]
+        where = ' AND '.join([like_clause for _ in parts])
+        sql = (sql_s % where)
+        c.execute(sql, parts)
+        records = c.fetchall()
+
+    logging.debug("{}, [{}]".format(sql, parts))
 
     for record in records:
         if record is not None and record[13] is not None:
@@ -108,11 +183,17 @@ class IMDBSpider(object):
             # real_title = film["title"]
             real_title = task['title']
             movie_rating = get_offline_rating(real_title, task['years'])
-            self.writer.writerow([
-                task['title'],
-                movie_rating
-            ])
-            logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
+            if movie_rating:
+                self.writer.writerow([
+                    task['title'],
+                    movie_rating
+                ])
+                logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
+            else:
+                self.writer_no_imdb.writerow([
+                    task['title']
+                ])
+                logging.debug("No {} in IMDB".format(task['title']))
         except IndexError:
             self.writer_no_imdb.writerow([
                 task['title']

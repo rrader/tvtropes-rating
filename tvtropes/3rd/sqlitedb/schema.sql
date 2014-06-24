@@ -21,6 +21,14 @@ CREATE TABLE productions (
 --CREATE UNIQUE INDEX UK_productions_title_year ON productions(title ASC, year ASC);
 --CREATE UNIQUE INDEX UK_productions_slug ON productions(slug ASC);
 
+CREATE TABLE aka_titles (
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+	year INTEGER,
+	title VARCHAR,
+	aka_year INTEGER,
+	aka_title VARCHAR
+);
+
 CREATE TABLE people (
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	last_name VARCHAR,

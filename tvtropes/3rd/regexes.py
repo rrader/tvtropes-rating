@@ -105,9 +105,40 @@ director_regex_string = """
 """
 genre_regex_string = unique_title_regex_string + r"\t+(?P<genre>[^\t\n]+)$"
 
+
+aka_titles_regex_string = """
+    ^
+    (
+        (
+            ("(?P<qname>[^"]+)")
+            |
+            ((?P<name>[^\" ][^\"]*))
+        )
+        [ ]+
+        \(
+            ((?P<year>\d\d\d\d[^ ]*) | (?P<noyear>\?\?\?\?[^ ]*))
+        \)
+    )|
+    (
+        [ ]+
+        \(aka
+        [ ]+
+        (
+            ("(?P<aka_qname>[^"]+)")
+            |
+            ((?P<aka_name>[^\" ][^\"]*))
+        )
+        [ ]*
+            \(
+                ((?P<aka_year>\d\d\d\d[^ ]*) | (?P<aka_noyear>\?\?\?\?[^ ]*))
+            \)
+        \)
+    )
+"""
+aka_titles_regex   = re.compile(aka_titles_regex_string,   re.VERBOSE)
+
 unique_title_regex = re.compile(unique_title_regex_string, re.VERBOSE)
 productions_regex  = re.compile(productions_regex_string,  re.VERBOSE)
 rating_regex       = re.compile(rating_regex_string,       re.VERBOSE)
 director_regex     = re.compile(director_regex_string,     re.VERBOSE)
 genre_regex        = re.compile(genre_regex_string,        re.VERBOSE)
-

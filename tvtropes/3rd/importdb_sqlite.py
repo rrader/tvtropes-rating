@@ -52,6 +52,7 @@ def do_import():
     badlines_movies    = open('sqlitedb/badlines_movies.txt',    'w')
     badlines_ratings   = open('sqlitedb/badlines_ratings.txt',   'w')
     badlines_directors = open('sqlitedb/badlines_directors.txt', 'w')
+    badlines_aka_titles = open('sqlitedb/badlines_aka_titles.txt', 'w')
 
     limit = 10000000
     commit_every = 10000
@@ -233,6 +234,56 @@ def do_import():
                 [current_id_people, id_productions, 'director', description])
         except:
             continue
+
+        if i % commit_every == 0:
+            db.commit()
+
+    db.commit()
+    print t.elapsed_seconds()
+
+    print "Importing titles..."
+
+    # import titles
+    i = 0
+    current_title = None
+    current_year = None
+    for line in open('dumps/aka-titles.list', 'r'):
+        i += 1
+
+        if 0 == i % 100000:
+            print i, 'Titles'
+
+        if i >= limit:
+            break
+
+        # blank lines separate productions
+        if line == "\n":
+            current_title = None
+            current_year = None
+            continue
+
+        regex = regexes.aka_titles_regex
+        m = re.match(regex, line.decode('iso8859', 'replace'))
+
+        if not m:
+            badlines_aka_titles.write(line)
+            continue
+
+        # print m.groups()
+
+        if not current_title:
+            current_title = (m.group('name') or m.group('qname')).strip()
+            current_year = (m.group('year') or m.group('noyear')).strip()
+            assert current_title is not None
+        else:
+            aka_title = (m.group('aka_name') or m.group('aka_qname')).strip()
+            aka_year = (m.group('aka_year') or m.group('aka_noyear')).strip()
+
+            try:
+                cursor.execute("""INSERT INTO aka_titles (year, title, aka_year, aka_title) VALUES (?,?,?,?)""",
+                    [current_year, current_title, aka_year, aka_title])
+            except:
+                continue
 
         if i % commit_every == 0:
             db.commit()

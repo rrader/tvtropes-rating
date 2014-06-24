@@ -1,3 +1,4 @@
 sqlitedb/*.sqlite*
 sqlitedb/*.txt
+sqlitedb/*.dbd
 dumps
