@@ -32,27 +32,28 @@ class TVTropesSpider(Spider):
     def task_section(self, grab, task):
         if self.redis.getset(task.url, "1") is not None:
             return
-        print("Section " + task.url)
+        logging.debug("Section " + task.url)
         films = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for film in films:
             if film.attr('href').split('/')[-2] == self.ns:  # Film
                 yield Task("film", f_name=film.text(), url=film.attr('href'))
             elif film.attr('href').split('/')[-2] == "Main":  # subsection
                 if task.level < 2:
-                    print("subsection " + film.attr('href') + ' ' + task.url)
+                    logging.debug("subsection " + film.attr('href') + ' ' + task.url)
                     yield Task("section", s_name=film.text(), url=film.attr('href'), level=task.level+1)
 
     def task_film(self, grab, task):
         if self.redis.getset(task.url, "1") is not None:
             return
-        print("Film " + task.url)
+        logging.info("Film " + task.url)
         years_sel = grab.doc.select('//div[@id="wikitext"]').rex('(\d\d\d\d)')
         years = set(y.group() for y in years_sel.items)
         years_in_title = year_regex.search(task.f_name)
         if years_in_title:
             years = years.union(set(years_in_title.groups()))
 
-        title = year_regex.sub('', task.f_name).strip()
+        title = grab.doc.select('//div[@class="pagetitle"]/span').text().strip()
+        title = year_regex.sub('', title).strip()
 
         tropes = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
         for trope in tropes:

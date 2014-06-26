@@ -2,10 +2,13 @@ import concurrent.futures
 import csv
 import html
 import logging
+from random import random
+import traceback
+import sys
+import time
 import os
 import threading
 from urllib.parse import urlencode
-import re
 import sqlite3
 import re
 from imdbpie import Imdb
@@ -58,14 +61,16 @@ def get_imdb_connection():
     return imdb_db_connections[ident]
 
 tvt_db_connections = {}
-TVTROPES_DB_PATH = './tvtropesdb/tvtropes.sqlite'
+TVTROPES_DB_PATH = './gen/tvtropes.sqlite'
 TVTROPES_DB_SCHEMA_PATH = './tvtropesdb/schema.sql'
+year_regex   = re.compile(".*(\d\d\d\d).*", re.VERBOSE)
 
 
 def get_tvt_connection():
     ident = threading.get_ident()
     if ident not in tvt_db_connections:
-        tvt_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH)
+        tvt_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH, timeout=5)
+        logging.debug('CONNECTION OPENED')
     return tvt_db_connections[ident]
 
 
@@ -81,26 +86,78 @@ def get_offline_rating(name, years, aka=True):
     year_clause = " AND " + year_clause_generic % ("year", "year")
     sql_with_year = sql_no_year + year_clause
 
-    sql_aka = "SELECT * FROM aka_titles WHERE aka_title LIKE ?"
-    sql_aka_year = None
+    aka_like_clause = 'aka_title LIKE ?'
+    sql_aka_generic = "SELECT * FROM aka_titles WHERE %s"
+    sql_aka = sql_aka_generic % aka_like_clause
+    sql_aka_g = None
     original_name = None
     if aka:
+        aka_year_clause = " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
         if years:
-            sql_aka_year = sql_aka + " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
-            c.execute(sql_aka_year, [name])
+            sql_aka_g = sql_aka + aka_year_clause
+            c.execute(sql_aka_g, [name])
             try:
                 original_name = c.fetchone()[2]  # get original title
             except TypeError:
                 pass
         if not original_name:
-            sql_aka_year = sql_aka
-            c.execute(sql_aka_year, [name])
+            sql_aka_g = sql_aka
+            c.execute(sql_aka_g, [name])
             try:
                 original_name = c.fetchone()[2]  # get original title
             except TypeError:
                 pass
+        if not original_name:
+            sql_aka_g = sql_aka + aka_year_clause
+            c.execute(sql_aka_g, ['%' + name + '%'])
+            try:
+                original_name = c.fetchone()[2]  # get original title
+            except TypeError:
+                pass
+        if not original_name:
+            sql_aka_g = sql_aka
+            c.execute(sql_aka_g, ['%' + name + '%'])
+            try:
+                original_name = c.fetchone()[2]  # get original title
+            except TypeError:
+                pass
+        if not original_name:
+            parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
+            if len(parts):
+                where = ' AND '.join([aka_like_clause for _ in parts])
+                sql_aka_g = sql_aka_generic % where
+                c.execute(sql_aka_g, parts)
+                try:
+                    original_name = c.fetchone()[2]  # get original title
+                except TypeError:
+                    pass
+        if not original_name:
+            parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
+            if len(parts):
+                where = ' AND '.join([aka_like_clause for _ in parts])
+                sql_aka_g = sql_aka_generic % where + aka_year_clause
+                c.execute(sql_aka_g, parts)
+                try:
+                    original_name = c.fetchone()[2]  # get original title
+                except TypeError:
+                    pass
+    # if not records:
+    #     parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
+    #     if len(parts):
+    #         where = ' AND '.join([like_clause for _ in parts])
+    #         sql = (sql_s % where) + year_clause
+    #         c.execute(sql, parts)
+    #         records = c.fetchall()
+    # if not records:
+    #     parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 0]
+    #     if len(parts):
+    #         where = ' AND '.join([like_clause for _ in parts])
+    #         sql = (sql_s % where) #  + year_clause
+    #         print(sql, parts)
+    #         c.execute(sql, parts)
+    #         records = c.fetchall()
         if original_name:
-            logging.debug("{}, [{}]".format(sql_aka_year, [name]))
+            logging.debug("{}, [{}]".format(sql_aka_g, [name]))
             original_rating, found_name, found_years = get_offline_rating(original_name, years, aka=False)
             if original_rating:
                 return original_rating, found_name, found_years
@@ -139,6 +196,7 @@ def get_offline_rating(name, years, aka=True):
         if len(parts):
             where = ' AND '.join([like_clause for _ in parts])
             sql = (sql_s % where) #  + year_clause
+            print(sql, parts)
             c.execute(sql, parts)
             records = c.fetchall()
     if not records:
@@ -155,6 +213,15 @@ def get_offline_rating(name, years, aka=True):
             sql = (sql_s % where) #  + year_clause
             c.execute(sql, parts)
             records = c.fetchall()
+    # try without year
+    if not records:
+        years_in_title = year_regex.search(name)
+        if years_in_title:
+            years = list(set(years).union(set(years_in_title.groups())))
+            name_n = year_regex.sub('', name).strip()
+            original_rating, found_name, found_years = get_offline_rating(name_n, years, aka=True)
+            if original_rating:
+                return original_rating, found_name, found_years
 #
     if not records and len(name.split(':')) > 1:
         parts = [('%%%s%%' % part) for part in name.split(':')[1].split(' ') if len(part) > 3]
@@ -199,7 +266,6 @@ def init_db():
     db = get_tvt_connection()
     cursor = db.cursor()
     cursor.executescript(open(TVTROPES_DB_SCHEMA_PATH).read())
-    return db
 
 
 class IMDBSpider(object):
@@ -212,12 +278,12 @@ class IMDBSpider(object):
         self.imdb = None
         self.processed = 0
 
-        self.db = init_db()
+        init_db()
 
     def shutdown(self):
         # self.csvfile_dst.close()
-        self.db.commit()
-        self.db.close()
+        get_tvt_connection().commit()
+        get_tvt_connection().close()
         self.csvfile_dst_notfound.close()
 
     def task_generator(self):
@@ -237,18 +303,8 @@ class IMDBSpider(object):
             real_title = task['title']
             movie_rating, found_name, found_years = get_offline_rating(real_title, task['years'])
             if movie_rating:
-                c = self.db.cursor()
-                c.execute("""INSERT INTO films(
-                            title,
-                            imdb_title,
-                            rating,
-                            years)
-                          VALUES (?, ?, ?, ?)
-                          """, [task['title'], found_name, movie_rating, found_years])
-                # self.writer.writerow([
-                #     task['title'],
-                #     movie_rating
-                # ])
+                self.save_film(title=task['title'], imdb_title=found_name,
+                               rating=movie_rating, years=found_years)
                 logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
             else:
                 self.writer_no_imdb.writerow([
@@ -262,12 +318,35 @@ class IMDBSpider(object):
             logging.debug("No {} in IMDB".format(task['title']))
         except Exception as ex:
             logging.error("Some error: {}".format(ex))
+            traceback.print_exc(file=sys.stdout)
             raise ex
         # self.csvfile_dst.flush()
         self.processed += 1
-        if self.processed % 50 == 0:
-            self.db.commit()
+        get_tvt_connection().commit()
         self.csvfile_dst_notfound.flush()
+
+    def save_film(self, title, imdb_title, rating, years):
+        retry = False
+        while True:
+            try:
+                c = get_tvt_connection().cursor()
+                c.execute("""INSERT INTO films(
+                            title,
+                            imdb_title,
+                            rating,
+                            years)
+                          VALUES (?, ?, ?, ?)
+                          """, [title, imdb_title, rating, years])
+                c.close()
+            except sqlite3.OperationalError as ex:
+                logging.debug('retry... {}'.format(ex))
+                retry = True
+            else:
+                if retry:
+                    logging.debug('DB unlocked...')
+                    time.sleep(random())
+                break
+
 
     def run(self, parallel=True):
         self.prepare()
@@ -291,4 +370,4 @@ class IMDBSpider(object):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     bot = IMDBSpider()
-    bot.run(parallel=False)
+    bot.run(parallel=True)
