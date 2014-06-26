@@ -73,7 +73,11 @@ def do_import():
 
         line = line
         regex = regexes.productions_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))
+        src_enc = 'iso8859'
+        encoding = regexes.encoding_re.findall(line)
+        if encoding:
+            src_enc = encoding[0]
+        m = re.match(regex, line.decode(src_enc, 'replace'))
         if (not m):
             badlines_movies.write(line)
             continue
@@ -152,7 +156,11 @@ def do_import():
 
         line = line
         regex = regexes.rating_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))
+        src_enc = 'iso8859'
+        encoding = regexes.encoding_re.findall(line)
+        if encoding:
+            src_enc = encoding[0]
+        m = re.match(regex, line.decode(src_enc, 'replace'))
         if (not m):
             badlines_ratings.write(line)
             continue
@@ -197,7 +205,11 @@ def do_import():
             continue
 
         regex = regexes.director_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))
+        src_enc = 'iso8859'
+        encoding = regexes.encoding_re.findall(line)
+        if encoding:
+            src_enc = encoding[0]
+        m = re.match(regex, line.decode(src_enc, 'replace'))
 
         if not m:
             badlines_directors.write(line)
@@ -263,7 +275,11 @@ def do_import():
             continue
 
         regex = regexes.aka_titles_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))
+        src_enc = 'iso8859'
+        encoding = regexes.encoding_re.findall(line)
+        if encoding:
+            src_enc = encoding[0]
+        m = re.match(regex, line.decode(src_enc, 'replace'))
 
         if not m:
             badlines_aka_titles.write(line)
@@ -304,7 +320,11 @@ def do_import():
         if i >= limit:
             break
         regex = regexes.genre_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))  # CHECK BY REGEX
+        src_enc = 'iso8859'
+        encoding = regexes.encoding_re.findall(line)
+        if encoding:
+            src_enc = encoding[0]
+        m = re.match(regex, line.decode(src_enc, 'replace'))
 
         if not m:
             continue
