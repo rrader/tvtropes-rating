@@ -304,7 +304,7 @@ def do_import():
         if i >= limit:
             break
         regex = regexes.genre_regex
-        m = re.match(regex, line.decode('iso8859', 'replace'))
+        m = re.match(regex, line.decode('iso8859', 'replace'))  # CHECK BY REGEX
 
         if not m:
             continue

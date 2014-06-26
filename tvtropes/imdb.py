@@ -2,6 +2,7 @@ import concurrent.futures
 import csv
 import html
 import logging
+import os
 import threading
 from urllib.parse import urlencode
 import re
@@ -47,18 +48,31 @@ class MyImdb(Imdb):
         return title_results
 
 
-sqlite3_connections = {}
+imdb_db_connections = {}
 
 
-def get_connection():
+def get_imdb_connection():
     ident = threading.get_ident()
-    if ident not in sqlite3_connections:
-        sqlite3_connections[ident] = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
-    return sqlite3_connections[ident]
+    if ident not in imdb_db_connections:
+        imdb_db_connections[ident] = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
+    return imdb_db_connections[ident]
+
+tvt_db_connections = {}
+TVTROPES_DB_PATH = './tvtropesdb/tvtropes.sqlite'
+TVTROPES_DB_SCHEMA_PATH = './tvtropesdb/schema.sql'
 
 
-def get_offline_rating(name, years, aka=False):
-    c = get_connection().cursor()
+def get_tvt_connection():
+    ident = threading.get_ident()
+    if ident not in tvt_db_connections:
+        tvt_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH)
+    return tvt_db_connections[ident]
+
+
+
+def get_offline_rating(name, years, aka=True):
+    # TODO: rewrite this spaghetti
+    c = get_imdb_connection().cursor()
     rating = []
     sql_s = "SELECT * FROM productions WHERE %s AND rating IS NOT NULL"
     like_clause = "title LIKE ?"
@@ -68,17 +82,28 @@ def get_offline_rating(name, years, aka=False):
     sql_with_year = sql_no_year + year_clause
 
     sql_aka = "SELECT * FROM aka_titles WHERE aka_title LIKE ?"
-    if years:
-        sql_aka_year = sql_aka + " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
-    else:
-        sql_aka_year = sql_aka
-
-    logging.debug("{}, [{}]".format(sql_aka_year, [name]))
-    c.execute(sql_aka_year, [name])
-    try:
-        name = c.fetchone()[2]  # get original title
-    except TypeError:
-        pass
+    sql_aka_year = None
+    original_name = None
+    if aka:
+        if years:
+            sql_aka_year = sql_aka + " AND (" + year_clause_generic % ("year", "year") + " OR " + year_clause_generic % ("aka_year", "aka_year") + ")"
+            c.execute(sql_aka_year, [name])
+            try:
+                original_name = c.fetchone()[2]  # get original title
+            except TypeError:
+                pass
+        if not original_name:
+            sql_aka_year = sql_aka
+            c.execute(sql_aka_year, [name])
+            try:
+                original_name = c.fetchone()[2]  # get original title
+            except TypeError:
+                pass
+        if original_name:
+            logging.debug("{}, [{}]".format(sql_aka_year, [name]))
+            original_rating, found_name, found_years = get_offline_rating(original_name, years, aka=False)
+            if original_rating:
+                return original_rating, found_name, found_years
 
     records = []
     sql = None
@@ -104,69 +129,95 @@ def get_offline_rating(name, years, aka=False):
         records = c.fetchall()
     if not records:
         parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
     if not records:
         parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 0]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) #  + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) #  + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
     if not records:
         parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 3]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
     if not records:
         parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 3]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) #  + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) #  + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
 #
     if not records and len(name.split(':')) > 1:
         parts = [('%%%s%%' % part) for part in name.split(':')[1].split(' ') if len(part) > 3]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
     if not records and len(name.split("'s")) > 1:
         parts = [('%%%s%%' % part) for part in name.split("'s")[1].strip().split(' ') if len(part) > 3]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where) + year_clause
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where) + year_clause
+            c.execute(sql, parts)
+            records = c.fetchall()
     if not records and len(name.split("'s")) > 1:
         parts = [('%%%s%%' % part) for part in name.split("'s")[1].strip().split(' ') if len(part) > 3]
-        where = ' AND '.join([like_clause for _ in parts])
-        sql = (sql_s % where)
-        c.execute(sql, parts)
-        records = c.fetchall()
+        if len(parts):
+            where = ' AND '.join([like_clause for _ in parts])
+            sql = (sql_s % where)
+            c.execute(sql, parts)
+            records = c.fetchall()
 
     logging.debug("{}, [{}]".format(sql, parts))
 
+    found_years = []
     for record in records:
         if record is not None and record[13] is not None:
             rating.append(record[13])
+            found_years.append(str(record[6]))
     if not rating:
-        return
-    return sum(rating) / len(rating)
+        return None, None, None
+    # TODO: take into account count of votes (weighted mean)
+    return sum(rating) / len(rating), name, ','.join(found_years)
+
+
+def init_db():
+    try:
+        os.remove(TVTROPES_DB_PATH)
+    except:
+        pass
+    db = get_tvt_connection()
+    cursor = db.cursor()
+    cursor.executescript(open(TVTROPES_DB_SCHEMA_PATH).read())
+    return db
 
 
 class IMDBSpider(object):
     def prepare(self):
-        self.csvfile_dst = open("gen/films_imdb.csv", "w", newline='')
+        # self.csvfile_dst = open("gen/films_imdb.csv", "w", newline='')
         self.csvfile_dst_notfound = open("gen/films_no_imdb.csv", "w", newline='')
 
-        self.writer = csv.writer(self.csvfile_dst)
+        # self.writer = csv.writer(self.csvfile_dst)
         self.writer_no_imdb = csv.writer(self.csvfile_dst_notfound)
         self.imdb = None
+        self.processed = 0
+
+        self.db = init_db()
 
     def shutdown(self):
-        self.csvfile_dst.close()
+        # self.csvfile_dst.close()
+        self.db.commit()
+        self.db.close()
         self.csvfile_dst_notfound.close()
 
     def task_generator(self):
@@ -184,12 +235,20 @@ class IMDBSpider(object):
             # film = self.imdb.find_by_title(task['title'])[0]
             # real_title = film["title"]
             real_title = task['title']
-            movie_rating = get_offline_rating(real_title, task['years'])
+            movie_rating, found_name, found_years = get_offline_rating(real_title, task['years'])
             if movie_rating:
-                self.writer.writerow([
-                    task['title'],
-                    movie_rating
-                ])
+                c = self.db.cursor()
+                c.execute("""INSERT INTO films(
+                            title,
+                            imdb_title,
+                            rating,
+                            years)
+                          VALUES (?, ?, ?, ?)
+                          """, [task['title'], found_name, movie_rating, found_years])
+                # self.writer.writerow([
+                #     task['title'],
+                #     movie_rating
+                # ])
                 logging.info("{}: [{}] {}".format(task['title'], movie_rating, real_title))
             else:
                 self.writer_no_imdb.writerow([
@@ -203,19 +262,28 @@ class IMDBSpider(object):
             logging.debug("No {} in IMDB".format(task['title']))
         except Exception as ex:
             logging.error("Some error: {}".format(ex))
-        self.csvfile_dst.flush()
+            raise ex
+        # self.csvfile_dst.flush()
+        self.processed += 1
+        if self.processed % 50 == 0:
+            self.db.commit()
         self.csvfile_dst_notfound.flush()
 
-    def run(self):
+    def run(self, parallel=True):
         self.prepare()
 
         gen = self.task_generator()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        if parallel:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                for row in gen:
+                    method = getattr(self, 'task_{}'.format(row['name']))
+                    executor.submit(method, row)
+                executor.shutdown(wait=True)
+        else:
             for row in gen:
                 method = getattr(self, 'task_{}'.format(row['name']))
-                executor.submit(method, row)
-            executor.shutdown(wait=True)
+                method(row)
 
         self.shutdown()
 
@@ -223,4 +291,4 @@ class IMDBSpider(object):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     bot = IMDBSpider()
-    bot.run()
+    bot.run(parallel=False)

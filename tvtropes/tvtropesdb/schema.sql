@@ -1,0 +1,12 @@
+BEGIN TRANSACTION;
+
+CREATE TABLE films (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    title VARCHAR,
+    imdb_title VARCHAR,
+    rating FLOAT,
+    years VARCHAR
+);
+
+COMMIT;
+

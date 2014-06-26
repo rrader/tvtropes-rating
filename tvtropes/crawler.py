@@ -47,7 +47,10 @@ class TVTropesSpider(Spider):
             return
         print("Film " + task.url)
         years_sel = grab.doc.select('//div[@id="wikitext"]').rex('(\d\d\d\d)')
-        years = set(y.group() for y in years_sel.items).union(set(year_regex.search(task.f_name).groups()))
+        years = set(y.group() for y in years_sel.items)
+        years_in_title = year_regex.search(task.f_name)
+        if years_in_title:
+            years = years.union(set(years_in_title.groups()))
 
         title = year_regex.sub('', task.f_name).strip()
 
