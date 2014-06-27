@@ -1,10 +1,33 @@
 import csv
+import os
+import threading
+import sqlite3
 import re
 from grab.spider import Spider, Task
 import redis
 import logging
 
-year_regex   = re.compile(".*\((\d\d\d\d)\).*", re.VERBOSE)
+year_regex = re.compile(".*\((\d\d\d\d)\).*", re.VERBOSE)
+imdb_db_connections = {}
+TVTROPES_DB_PATH = './gen/tropes.sqlite'
+TVTROPES_DB_SCHEMA_PATH = './tvtropesdb/tropes.sql'
+
+
+def get_db_connection():
+    ident = threading.get_ident()
+    if ident not in imdb_db_connections:
+        imdb_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH, timeout=60)
+    return imdb_db_connections[ident]
+
+
+def init_db():
+    try:
+        os.remove(TVTROPES_DB_PATH)
+    except:
+        pass
+    db = get_db_connection()
+    cursor = db.cursor()
+    cursor.executescript(open(TVTROPES_DB_SCHEMA_PATH).read())
 
 
 class TVTropesSpider(Spider):
@@ -13,16 +36,13 @@ class TVTropesSpider(Spider):
 
     def prepare(self):
         super().prepare()
-        self.full_file = open('gen/data.csv', 'w', newline='')
-        self.result_file = csv.writer(self.full_file)
-        self.short_file = open('gen/s_data.csv', 'w', newline='')
-        self.s_result_file = csv.writer(self.short_file)
+        init_db()
         self.redis = redis.Redis(db=1)
 
     def shutdown(self):
         super().shutdown()
-        self.full_file.close()
-        self.short_file.close()
+        get_db_connection().commit()
+        get_db_connection().close()
 
     def task_initial(self, grab, task):
         sections = grab.doc.select('//div[@id="wikitext"]/ul[1]/li/a[1]')
@@ -56,20 +76,32 @@ class TVTropesSpider(Spider):
         title = year_regex.sub('', title).strip()
 
         tropes = grab.doc.select('//div[@id="wikitext"]//li//a[1]')
+        found_tropes = []
         for trope in tropes:
             if trope.attr('href').split('/')[-2] == "Main":
-                self.result_file.writerow([
-                    task.url,
-                    title,
-                    trope.text(),
-                    trope.attr('href'),
-                    ','.join(years)
-                ])
-                self.s_result_file.writerow([
-                    title,
-                    trope.text(),
-                    ','.join(years)
-                ])
+                found_tropes.append( (trope.text(), trope.attr('href')) )
+        self.save_tvtrope(title,
+                          task.url,
+                          ','.join(years),
+                          found_tropes)
+
+    @staticmethod
+    def save_tvtrope(title, url, years, tropes):
+        c = get_db_connection().cursor()
+        c.execute("""INSERT OR IGNORE INTO films(title, url, years) VALUES (?, ?, ?)""",
+                  [title, url, years])
+        film_id = c.lastrowid
+        c.executemany("""INSERT OR IGNORE INTO tropes(trope, url) VALUES (?, ?)""",
+                      tropes)
+        c.executemany("""INSERT INTO film_tropes(film, trope)
+                         VALUES
+                         ( ?,
+                           (SELECT id FROM tropes WHERE trope = ?)
+                         )
+                      """,
+                      [(film_id, trope[0]) for trope in tropes])
+        c.close()
+        get_db_connection().commit()
 
 
 if __name__ == "__main__":

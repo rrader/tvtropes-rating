@@ -61,15 +61,15 @@ def get_imdb_connection():
     return imdb_db_connections[ident]
 
 tvt_db_connections = {}
-TVTROPES_DB_PATH = './gen/tvtropes.sqlite'
-TVTROPES_DB_SCHEMA_PATH = './tvtropesdb/schema.sql'
+RATING_DB_PATH = './gen/rating.sqlite'
+RATING_DB_SCHEMA_PATH = './tvtropesdb/rating.sql'
 year_regex   = re.compile(".*(\d\d\d\d).*", re.VERBOSE)
 
 
 def get_tvt_connection():
     ident = threading.get_ident()
     if ident not in tvt_db_connections:
-        tvt_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH, timeout=5)
+        tvt_db_connections[ident] = sqlite3.connect(RATING_DB_PATH, timeout=5)
         logging.debug('CONNECTION OPENED')
     return tvt_db_connections[ident]
 
@@ -260,12 +260,12 @@ def get_offline_rating(name, years, aka=True):
 
 def init_db():
     try:
-        os.remove(TVTROPES_DB_PATH)
+        os.remove(RATING_DB_PATH)
     except:
         pass
     db = get_tvt_connection()
     cursor = db.cursor()
-    cursor.executescript(open(TVTROPES_DB_SCHEMA_PATH).read())
+    cursor.executescript(open(RATING_DB_SCHEMA_PATH).read())
 
 
 class IMDBSpider(object):
