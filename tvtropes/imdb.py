@@ -61,13 +61,18 @@ def load_to_memory(conn):
     return memorydb
 
 
-def get_imdb_connection():
+def get_imdb_connection(in_memory=True):
+    """in_memory is faster but requires a lot of memory"""
     ident = threading.get_ident()
     if ident not in imdb_db_connections:
         logging.debug("Creating connection to IMDB for thread #{} [{}]".format(ident, threading.get_ident()))
-        # with sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite') as conn:
-        #     imdb_db_connections[ident] = load_to_memory(conn)
-        imdb_db_connections[ident] = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
+        conn = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
+        if in_memory:
+            imdb_db_connections[ident] = load_to_memory(conn)
+            conn.close()
+        else:
+            imdb_db_connections[ident] = conn
+
     return imdb_db_connections[ident]
 
 rating_db_connections = {}
