@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 import sqlite3
 import re
 from imdbpie import Imdb
+import sqlitebck
 
 
 class MyImdb(Imdb):
@@ -54,25 +55,43 @@ class MyImdb(Imdb):
 imdb_db_connections = {}
 
 
+def load_to_memory(conn):
+    memorydb = sqlite3.connect(":memory:", timeout=60, check_same_thread=False)
+    sqlitebck.copy(conn, memorydb)
+    return memorydb
+
+
 def get_imdb_connection():
     ident = threading.get_ident()
     if ident not in imdb_db_connections:
+        logging.debug("Creating connection to IMDB for thread #{} [{}]".format(ident, threading.get_ident()))
+        # with sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite') as conn:
+        #     imdb_db_connections[ident] = load_to_memory(conn)
         imdb_db_connections[ident] = sqlite3.connect('./3rd/sqlitedb/moviedb.sqlite')
     return imdb_db_connections[ident]
 
-tvt_db_connections = {}
+rating_db_connections = {}
 RATING_DB_PATH = './gen/rating.sqlite'
 RATING_DB_SCHEMA_PATH = './tvtropesdb/rating.sql'
 year_regex   = re.compile(".*(\d\d\d\d).*", re.VERBOSE)
 
 
-def get_tvt_connection():
+def get_rating_connection():
+    ident = threading.get_ident()
+    if ident not in rating_db_connections:
+        rating_db_connections[ident] = sqlite3.connect(RATING_DB_PATH, timeout=10)  # RATING_DB_PATH
+        logging.debug('CONNECTION OPENED')
+    return rating_db_connections[ident]
+
+
+tvt_db_connections = {}
+
+
+def get_tropes_connection():
     ident = threading.get_ident()
     if ident not in tvt_db_connections:
-        tvt_db_connections[ident] = sqlite3.connect(RATING_DB_PATH, timeout=5)
-        logging.debug('CONNECTION OPENED')
+        tvt_db_connections[ident] = sqlite3.connect('./gen/tropes.sqlite', timeout=10)
     return tvt_db_connections[ident]
-
 
 
 def get_offline_rating(name, years, aka=True):
@@ -141,21 +160,7 @@ def get_offline_rating(name, years, aka=True):
                     original_name = c.fetchone()[2]  # get original title
                 except TypeError:
                     pass
-    # if not records:
-    #     parts = [('%%%s%%' % part) for part in re.split(r' |:|,|-', name) if len(part) > 0]
-    #     if len(parts):
-    #         where = ' AND '.join([like_clause for _ in parts])
-    #         sql = (sql_s % where) + year_clause
-    #         c.execute(sql, parts)
-    #         records = c.fetchall()
-    # if not records:
-    #     parts = [('%%%s%%' % part) for part in name.split(' ') if len(part) > 0]
-    #     if len(parts):
-    #         where = ' AND '.join([like_clause for _ in parts])
-    #         sql = (sql_s % where) #  + year_clause
-    #         print(sql, parts)
-    #         c.execute(sql, parts)
-    #         records = c.fetchall()
+
         if original_name:
             logging.debug("{}, [{}]".format(sql_aka_g, [name]))
             original_rating, found_name, found_years = get_offline_rating(original_name, years, aka=False)
@@ -263,7 +268,7 @@ def init_db():
         os.remove(RATING_DB_PATH)
     except:
         pass
-    db = get_tvt_connection()
+    db = get_rating_connection()
     cursor = db.cursor()
     cursor.executescript(open(RATING_DB_SCHEMA_PATH).read())
 
@@ -278,19 +283,22 @@ class IMDBSpider(object):
         self.imdb = None
         self.processed = 0
 
+        get_imdb_connection()
+        get_tropes_connection()
         init_db()
 
     def shutdown(self):
         # self.csvfile_dst.close()
-        get_tvt_connection().commit()
-        get_tvt_connection().close()
+        get_rating_connection().commit()
+        get_rating_connection().close()
         self.csvfile_dst_notfound.close()
 
     def task_generator(self):
-        csvfile_src = open("gen/films.csv", newline='')
-        reader = csv.reader(csvfile_src)
-        for row in reader:
-            yield {'name': 'film', 'title': row[0], 'years': row[1].split(',')}
+        c = get_tropes_connection().cursor()
+        c.execute('SELECT * FROM films')
+
+        for row in c:
+            yield {'name': 'film', 'title': row[1], 'years': row[3].split(',')}
 
     def task_film(self, task, tries=1):
         logging.debug("Processing {}...".format(task['title']))
@@ -322,14 +330,14 @@ class IMDBSpider(object):
             raise ex
         # self.csvfile_dst.flush()
         self.processed += 1
-        get_tvt_connection().commit()
+        get_rating_connection().commit()
         self.csvfile_dst_notfound.flush()
 
     def save_film(self, title, imdb_title, rating, years):
         retry = False
         while True:
             try:
-                c = get_tvt_connection().cursor()
+                c = get_rating_connection().cursor()
                 c.execute("""INSERT INTO films(
                             title,
                             imdb_title,
@@ -354,7 +362,7 @@ class IMDBSpider(object):
         gen = self.task_generator()
 
         if parallel:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 for row in gen:
                     method = getattr(self, 'task_{}'.format(row['name']))
                     executor.submit(method, row)

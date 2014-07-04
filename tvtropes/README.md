@@ -6,5 +6,4 @@ workflow
     python importdb_sqlite.py
     cd ..
     python crawler.py
-    python film_list.py
     python imdb.py

@@ -410,6 +410,8 @@ def add_stats_and_indexes():
             WHERE is_tv_show_primary""",
         """CREATE INDEX productions_total_tv_show_popularity ON productions(total_tv_show_popularity)""",
         """CREATE INDEX people_total_popularity ON people(total_popularity)""",
+        """CREATE INDEX productions_titles ON productions(title)""",
+        """CREATE INDEX aka_titles_titles ON aka_titles(aka_title)"""
     )
     for sql_statement in sql_statements:
         try:

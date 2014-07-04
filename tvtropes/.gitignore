@@ -1,2 +1,4 @@
 *.sqlite
 *.csv
+*.secret
+*.sqlite-journal

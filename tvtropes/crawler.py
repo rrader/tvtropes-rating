@@ -1,7 +1,8 @@
-import csv
-import os
 import threading
+import time
+import os
 import sqlite3
+import sqlitebck
 import re
 from grab.spider import Spider, Task
 import redis
@@ -14,9 +15,11 @@ TVTROPES_DB_SCHEMA_PATH = './tvtropesdb/tropes.sql'
 
 
 def get_db_connection():
-    ident = threading.get_ident()
+    # ident = threading.get_ident()
+    ident = 0  #
     if ident not in imdb_db_connections:
-        imdb_db_connections[ident] = sqlite3.connect(TVTROPES_DB_PATH, timeout=60)
+        logging.debug("Creating connection for thread #{} [{}]".format(ident, threading.get_ident()))
+        imdb_db_connections[ident] = sqlite3.connect(":memory:", timeout=60, check_same_thread=False)  # TVTROPES_DB_PATH
     return imdb_db_connections[ident]
 
 
@@ -28,6 +31,14 @@ def init_db():
     db = get_db_connection()
     cursor = db.cursor()
     cursor.executescript(open(TVTROPES_DB_SCHEMA_PATH).read())
+
+
+def save_db():
+    logging.debug("Saving memory db to disk... thread #{}".format(threading.get_ident()))
+    disk_db = sqlite3.connect(TVTROPES_DB_PATH, timeout=60, check_same_thread=False)
+    sqlitebck.copy(get_db_connection(), disk_db)
+    disk_db.close()
+    logging.debug("DB Saved!")
 
 
 class TVTropesSpider(Spider):
@@ -42,12 +53,14 @@ class TVTropesSpider(Spider):
     def shutdown(self):
         super().shutdown()
         get_db_connection().commit()
+        save_db()
         get_db_connection().close()
 
     def task_initial(self, grab, task):
         sections = grab.doc.select('//div[@id="wikitext"]/ul[1]/li/a[1]')
         for section in sections:
             yield Task("section", s_name=section.text(), url=section.attr('href'), level=1)
+        # yield Task("film", f_name="Return of the Jedi", url="http://tvtropes.org/pmwiki/pmwiki.php/Film/ReturnOfTheJedi")
 
     def task_section(self, grab, task):
         if self.redis.getset(task.url, "1") is not None:
@@ -79,7 +92,7 @@ class TVTropesSpider(Spider):
         found_tropes = []
         for trope in tropes:
             if trope.attr('href').split('/')[-2] == "Main":
-                found_tropes.append( (trope.text(), trope.attr('href')) )
+                found_tropes.append( (trope.attr('href').split('/')[-1], trope.attr('href')) )
         self.save_tvtrope(title,
                           task.url,
                           ','.join(years),
@@ -93,7 +106,7 @@ class TVTropesSpider(Spider):
         film_id = c.lastrowid
         c.executemany("""INSERT OR IGNORE INTO tropes(trope, url) VALUES (?, ?)""",
                       tropes)
-        c.executemany("""INSERT INTO film_tropes(film, trope)
+        c.executemany("""INSERT OR IGNORE INTO film_tropes(film, trope)
                          VALUES
                          ( ?,
                            (SELECT id FROM tropes WHERE trope = ?)
